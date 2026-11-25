@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Віртуальні лабораторії — симулятори для уроків</title>
+<!-- © 2026 Біла Мар’яна Іванівна (ідея), Роман Білий (реалізація). Усі права захищено. -->
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Golos+Text:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --paper:#e8eef3; --grid:#d3dde6; --grid2:#c3d0db;
+  --ink:#1b2a4a; --muted:#566682; --card:#ffffff;
+  --chem:#2f7fd1; --chem-deep:#1d5a9e; --ghost:#9aaabf; --flame:#f2b632;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#121a26; --grid:#1b2636; --grid2:#223046;
+    --ink:#e6edf7; --muted:#9aabc4; --card:#18233a;
+    --chem:#4b9bea; --chem-deep:#2c6fb5; --ghost:#5f7191; --flame:#f5c451;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#121a26; --grid:#1b2636; --grid2:#223046;
+  --ink:#e6edf7; --muted:#9aabc4; --card:#18233a;
+  --chem:#4b9bea; --chem-deep:#2c6fb5; --ghost:#5f7191; --flame:#f5c451;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0;color:var(--ink);background-color:var(--paper);
+  background-image:
+    linear-gradient(var(--grid2) 1px,transparent 1px),
+    linear-gradient(90deg,var(--grid2) 1px,transparent 1px),
+    linear-gradient(var(--grid) 1px,transparent 1px),
+    linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:60px 60px,60px 60px,12px 12px,12px 12px;
+  font:17px/1.55 "Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+.wrap{max-width:1120px;margin:0 auto;padding:clamp(28px,6vw,72px) clamp(16px,4vw,40px) 48px}
+:focus-visible{outline:3px solid var(--flame);outline-offset:3px}
+
+/* heading: the title itself is set as a periodic-table formula */
+.title{margin:0;font-family:"Unbounded","Golos Text",sans-serif;font-weight:900;line-height:.95;letter-spacing:-.02em;font-size:clamp(2.3rem,7.4vw,5.6rem)}
+.title .sub{display:block;font-weight:500;font-size:.42em;letter-spacing:0;margin-top:.35em;color:var(--muted)}
+.lede{max-width:56ch;margin:18px 0 0;font-size:1.08rem;color:var(--muted)}
+
+/* the table */
+.table{margin-top:clamp(28px,5vw,48px);display:grid;gap:10px;grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:820px){.table{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cell{position:relative;aspect-ratio:1/1.08;border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;min-width:0}
+.cell .no{font-family:"Unbounded",sans-serif;font-weight:500;font-size:.95rem}
+.cell .grade{position:absolute;right:14px;top:12px;font-size:.85rem}
+.cell .sym{font-family:"Unbounded",sans-serif;font-weight:900;font-size:clamp(2.6rem,6vw,4.4rem);line-height:1;margin:auto 0 6px;letter-spacing:-.03em}
+.cell .name{font-weight:600;font-size:clamp(.92rem,1.6vw,1.05rem);line-height:1.25}
+.cell .subj{font-size:.82rem;margin-top:2px}
+
+a.cell{color:#fff;text-decoration:none;background:var(--chem);box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),0 10px 24px -14px var(--chem-deep);transition:transform .18s ease,box-shadow .18s ease}
+a.cell .subj,a.cell .grade{color:rgba(255,255,255,.85)}
+a.cell .open{margin-top:10px;align-self:flex-start;font-weight:600;font-size:.88rem;background:#fff;color:var(--chem-deep);border-radius:999px;padding:4px 12px}
+a.cell:hover{transform:translateY(-3px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25),0 16px 28px -14px var(--chem-deep)}
+a.cell:hover .sym{color:var(--flame)}
+
+.cell.ghost{border:2px dashed var(--ghost);color:var(--ghost);background:transparent}
+.cell.ghost .sym{opacity:.55}
+
+/* one orchestrated moment: cells are "discovered" in order on load */
+@media (prefers-reduced-motion: no-preference){
+  .cell{animation:appear .55s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i) * 70ms)}
+  @keyframes appear{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+}
+
+.note{margin:16px 0 0;font-size:.95rem;color:var(--muted);max-width:62ch}
+
+/* about block for the selected simulator */
+.about{margin-top:clamp(36px,6vw,64px);display:grid;gap:18px 40px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:820px){.about{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}}
+.about h2{margin:0;font-family:"Unbounded",sans-serif;font-weight:700;font-size:clamp(1.3rem,2.6vw,1.8rem);line-height:1.15}
+.about p{margin:10px 0 0}
+.about ul{margin:10px 0 0;padding-left:1.2em}
+.about li{margin-bottom:6px}
+.go{display:inline-block;margin-top:18px;background:var(--ink);color:var(--paper);text-decoration:none;font-weight:600;padding:12px 22px;border-radius:999px}
+.go:hover{background:var(--chem-deep);color:#fff}
+
+footer{margin-top:clamp(40px,7vw,72px);border-top:2px solid var(--ink);padding-top:18px;display:grid;gap:14px 40px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:820px){footer{grid-template-columns:repeat(3,minmax(0,1fr))}}
+footer p{margin:0;font-size:.92rem;color:var(--muted)}
+footer b{display:block;color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 class="title">Віртуальні лабораторії<span class="sub">симулятори для уроків природничих наук</span></h1>
+    <p class="lede">Проводьте досліди без реактивів і без ризику: зливайте розчини, спостерігайте за реакціями й перевіряйте рівняння. Оберіть симулятор у таблиці.</p>
+  </header>
+
+  <main>
+    <div class="table" id="table" aria-label="Таблиця симуляторів"></div>
+    <p class="note">Порожні клітинки — як ека-елементи, місця для яких Менделєєв залишив у своїй таблиці заздалегідь. Тут з’являтимуться нові симулятори.</p>
+
+    <section class="about" id="about" aria-live="polite"></section>
+  </main>
+
+  <footer>
+    <p><b>© 2026 Віртуальні лабораторії</b>Усі права захищено. Копіювання та поширення матеріалів без письмової згоди авторів заборонено.</p>
+    <p><b>Автор ідеї: Біла Мар’яна Іванівна</b>вчитель хімії, Ліцей № 3 імені В’ячеслава Чорновола</p>
+    <p><b>Реалізація: Роман Білий</b>вчитель інформатики, Дрогобицький науковий ліцей імені Богдана Лепкого</p>
+  </footer>
+</div>
+
+<script>
+/*
+  СПИСОК СИМУЛЯТОРІВ
+  Щоб додати новий симулятор, допишіть ще один об’єкт у масив SIMS.
+  sym — «символ» на клітинці (1–2 літери), url — посилання на симулятор.
+*/
+const SIMS=[
+  {
+    sym:'Йо',
+    name:'Реакції йонного обміну',
+    subject:'Хімія',
+    grade:'9 клас',
+    url:'chemistry/ion-exchange/',
+    about:'Віртуальна лабораторія до навчального дослідження 9 з підручника «Хімія, 9 клас» (О. В. Григорович).',
+    features:[
+      'чотири досліди з підручника з пробірками, піпеткою й індикаторами',
+      'вільне змішування будь-яких реактивів з поясненням кожної реакції',
+      'осади, газ і зміна кольору індикатора, як у справжній пробірці',
+      'молекулярні, повні й скорочені йонні рівняння для самоперевірки'
+    ]
+  }
+];
+const SLOTS=8; // скільки клітинок показувати в таблиці
+
+const table=document.getElementById('table'),about=document.getElementById('about');
+let html='';
+for(let i=0;i<SLOTS;i++){
+  const s=SIMS[i];
+  if(s){
+    html+='<a class="cell" style="--i:'+i+'" href="'+s.url+'" target="_blank" rel="noopener" aria-label="'+s.name+', '+s.subject+', '+s.grade+'. Відкрити симулятор">'
+      +'<span class="no">'+(i+1)+'</span><span class="grade">'+s.grade+'</span>'
+      +'<span class="sym">'+s.sym+'</span><span class="name">'+s.name+'</span><span class="subj">'+s.subject+'</span>'
+      +'<span class="open">Відкрити</span></a>';
+  }else{
+    html+='<div class="cell ghost" style="--i:'+i+'" aria-hidden="true"><span class="no">'+(i+1)+'</span>'
+      +'<span class="sym">?</span><span class="name">Ека-симулятор</span><span class="subj">ще не відкрито</span></div>';
+  }
+}
+table.innerHTML=html;
+
+const s=SIMS[0];
+if(s){
+  about.innerHTML='<div><h2>'+s.name+'</h2><p>'+s.about+'</p><a class="go" href="'+s.url+'" target="_blank" rel="noopener">Відкрити симулятор</a></div>'
+    +'<div><p><b>Що всередині</b></p><ul>'+s.features.map(f=>'<li>'+f+'</li>').join('')+'</ul></div>';
+}
+</script>
+</body>
+</html>
