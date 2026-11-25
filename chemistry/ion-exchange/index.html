@@ -167,6 +167,8 @@ details summary{cursor:pointer;color:var(--accent);font-weight:600;margin-top:4p
 .credits .who div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;display:grid;gap:2px}
 .credits .role{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
 .credits b{color:var(--ink);font-size:1rem}
+.animtog{display:flex;gap:6px;align-items:center;font-size:.9rem;cursor:pointer;white-space:nowrap}
+.animtog input{width:18px;height:18px;accent-color:var(--accent)}
 /* QR-код */
 header.top{display:flex;gap:16px 24px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
 .topText{flex:1 1 420px;min-width:0}
@@ -238,6 +240,8 @@ ul.tidy li{margin-bottom:3px}
   <div class="toolbar" role="region" aria-label="Піпетка">
     <div class="pip" id="pip"></div>
     <div class="dose" role="radiogroup" aria-label="Порція розчину" id="dose"></div>
+    <label class="animtog"><input type="checkbox" id="animToggle" checked> Анімація реакцій</label>
+    <label class="animtog"><input type="checkbox" id="soundToggle"> Звуки</label>
     <div class="live" id="live" role="status" aria-live="polite"></div>
   </div>
 
@@ -683,7 +687,65 @@ function pipCol(id){
 }
 
 /* ================= realistic tube renderer (Canvas 2D + particles) ================= */
-const REDUCED=!!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches);
+/* CALM: система просить менше руху — анімація лишається, але без бризок і туману.
+   REDUCED: учень вимкнув «Анімацію реакцій» — результат показується одразу. */
+const CALM=!!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches);
+let REDUCED=false;
+try{REDUCED=localStorage.getItem('ionlab-anim')==='off';}catch(_){}
+/* ================= sound (Web Audio, synthesized, off by default) ================= */
+const SND={on:false,ctx:null,master:null,noise:null,fizzG:null,streamG:null,pops:[],
+  ensure(){
+    if(!this.ctx){
+      const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;
+      const c=this.ctx=new AC();this.master=c.createGain();this.master.gain.value=.6;this.master.connect(c.destination);
+      const len=c.sampleRate*2,b=c.createBuffer(1,len,c.sampleRate),d=b.getChannelData(0);
+      for(let i=0;i<len;i++)d[i]=Math.random()*2-1;this.noise=b;
+      const bed=(type,f,q)=>{const s=c.createBufferSource();s.buffer=b;s.loop=true;const fl=c.createBiquadFilter();fl.type=type;fl.frequency.value=f;fl.Q.value=q;const g=c.createGain();g.gain.value=0;s.connect(fl).connect(g).connect(this.master);s.start();return g;};
+      this.fizzG=bed('highpass',2800,.7);
+      this.streamG=bed('bandpass',950,.8);
+    }
+    if(this.ctx.state==='suspended')this.ctx.resume();
+    return this.ctx;
+  },
+  ok(){return this.on&&this.ctx&&this.ctx.state==='running';},
+  burst(t,dur,type,f,q,gain){
+    const c=this.ctx,s=c.createBufferSource();s.buffer=this.noise;
+    const fl=c.createBiquadFilter();fl.type=type;fl.frequency.value=f;fl.Q.value=q;
+    const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(gain,t+.003);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    s.connect(fl).connect(g).connect(this.master);s.start(t,Math.random()*1.5);s.stop(t+dur+.02);
+  },
+  tone(t,f0,f1,dur,gain){
+    const c=this.ctx,o=c.createOscillator(),g=c.createGain();o.type='sine';
+    o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(f1,t+dur*.45);
+    g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(gain,t+.005);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g).connect(this.master);o.start(t);o.stop(t+dur+.02);
+  },
+  drop(str){ // water drop: short upward "plop" + tiny splash
+    if(!this.ok())return;const t=this.ctx.currentTime,f=480+Math.random()*260;
+    this.tone(t,f,f*2.3,.13,.32*Math.min(1,str||1));
+    this.burst(t,.05,'bandpass',3200,1.2,.05);
+  },
+  clink(delay){ // spatula touches the glass rim
+    if(!this.ok())return;const t=this.ctx.currentTime+(delay||0);
+    [[2380,.09,.55],[3710,.05,.38],[5930,.025,.22]].forEach(([f,gn,d])=>this.tone(t,f,f*1.002,d,gn));
+  },
+  rustle(delay,dur){ // powder sliding off the spatula
+    if(!this.ok())return;const t0=this.ctx.currentTime+(delay||0);
+    for(let i=0;i<16;i++){const t=t0+i*(dur/16)+Math.random()*.03;this.burst(t,.035,'bandpass',4800,1.4,.025+Math.random()*.03);}
+  },
+  pop(r){ // a bubble bursting at the surface
+    if(!this.ok())return;const now=this.ctx.currentTime;
+    this.pops=this.pops.filter(p=>now-p<.06);if(this.pops.length>=3)return;this.pops.push(now);
+    this.burst(now,.012+Math.random()*.01,'highpass',2200,.8,.03+r*.012);
+    if(Math.random()<.4)this.tone(now,1800+Math.random()*1400,3600,.025,.02);
+  },
+  beds(fizz,stream){
+    if(!this.ctx)return;const t=this.ctx.currentTime;
+    const f=this.on?Math.min(.13,fizz*.13):0,s=this.on&&stream?.08*(.75+Math.random()*.5):0;
+    this.fizzG.gain.setTargetAtTime(f,t,.08);this.streamG.gain.setTargetAtTime(s,t,.04);
+  }
+};
+
 const TV={W:200,H:500,x0:62,x1:138,cx:100,r:38,yT:110,yS:420,yB:458,full:140};
 const levelOf=V=>TV.yB-Math.min(V,MAXV)/MAXV*(TV.yB-TV.full);
 const rnd=(a,b)=>a+Math.random()*(b-a);
@@ -716,6 +778,9 @@ function loop(now){
     if(!v.c.isConnected){VIEWS.delete(v);return;}
     if(v.active){v.step(dt);v.draw();v.active=v.busyNow();if(v.active)any=true;}
   });
+  let fz=0,st=0;
+  VIEWS.forEach(v=>{const e=v.emit;if(e){const env=e.t<.4?e.t/.4:(e.t>e.dur-1?Math.max(0,e.dur-e.t):1);fz=Math.max(fz,Math.min(1,e.rate/220)*env);}fz=Math.max(fz,Math.min(.35,v.bubbles.length/320));if(v.stream)st=1;});
+  SND.beds(any?fz:0,any?st:0);
   if(any)requestAnimationFrame(loop);else rafOn=false;
 }
 class TubeView{
@@ -756,7 +821,7 @@ class TubeView{
     this.busy=true;
     if(REDUCED){this.contact(o);this.busy=false;this.next();return;}
     const x=TV.cx+rnd(-9,9);this.lastX=x;
-    if(o.kind==='powder')this.spat={o,x,t:0};
+    if(o.kind==='powder'){this.spat={o,x,t:0};SND.clink(.35);SND.rustle(.45,.9);}
     else this.pip={o,x,y:-160,t:0,phase:'in',fill:1,sq:0,left:o.kind==='drops'?(o.drops||1):2,gt:.2,cur:null,sdone:false,sdur:o.kind==='stream'?.5+(o.ml||1)*.75:0};
   }
   contact(o){
@@ -810,8 +875,8 @@ class TubeView{
   kickWave(x,amp){const f=clamp((x-TV.x0)/(TV.x1-TV.x0),0,1)*(this.N-1);for(let j=0;j<this.N;j++){const d=j-f;this.wv[j]+=amp*Math.exp(-d*d/2);}}
   flow(x,y){const T=this.T;return [14*Math.sin(y*.045+T*1.15+x*.02)+6*Math.sin(T*.7+x*.09),11*Math.cos(x*.06-T*.95)+5*Math.sin(y*.08+T*.5)];}
   impact(x,s,str,o){
-    this.lastX=x;this.kickWave(x,-str*55);this.ripples.push({x,r:2,a:.65});
-    if(this.level<TV.yB-1)for(let k=0;k<Math.round(3+str*3);k++)this.splash.push({x,y:s-1,vx:rnd(-55,55),vy:-rnd(90,190)*str,r:rnd(.7,1.4)});
+    SND.drop(str);this.lastX=x;this.kickWave(x,-str*55);this.ripples.push({x,r:2,a:.65});
+    if(this.level<TV.yB-1&&!CALM)for(let k=0;k<Math.round(3+str*3);k++)this.splash.push({x,y:s-1,vx:rnd(-55,55),vy:-rnd(90,190)*str,r:rnd(.7,1.4)});
     if(o&&!o._done)this.contact(o);else this.plume([255,255,255],6,.07,false);
   }
   /* --- simulation step --- */
@@ -927,10 +992,10 @@ class TubeView{
       b.x=clamp(b.x+Math.sin(b.age*9+b.ph)*.35,TV.x0+b.r+1,TV.x1-b.r-1);
       const sy=this.surf(b.x);
       if(b.y-b.r<=sy+.5){
-        b.dead=true;if(this.foam.length<220)this.foam.push({x:b.x+rnd(-2,2),r:Math.max(.9,b.r*.85),life:0,max:rnd(.6,2.2)});
+        b.dead=true;SND.pop(b.r);if(this.foam.length<220)this.foam.push({x:b.x+rnd(-2,2),r:Math.max(.9,b.r*.85),life:0,max:rnd(.6,2.2)});
         this.kickWave(b.x,-b.r*3);
-        if(Math.random()<.35)this.splash.push({x:b.x,y:sy-1,vx:rnd(-30,30),vy:-rnd(50,110),r:rnd(.4,.9)});
-        if(b.vig&&Math.random()<.25)this.mist.push({x:b.x,y:sy-3,vx:rnd(-5,5),vy:-rnd(10,22),r:rnd(5,10),life:0,max:rnd(1.8,3)});
+        if(!CALM&&Math.random()<.35)this.splash.push({x:b.x,y:sy-1,vx:rnd(-30,30),vy:-rnd(50,110),r:rnd(.4,.9)});
+        if(b.vig&&!CALM&&Math.random()<.25)this.mist.push({x:b.x,y:sy-3,vx:rnd(-5,5),vy:-rnd(10,22),r:rnd(5,10),life:0,max:rnd(1.8,3)});
       }
     }
     this.bubbles=this.bubbles.filter(b=>!b.dead);
@@ -1470,6 +1535,13 @@ document.addEventListener('click',ev=>{
   }
 });
 $('#ionsToggle').addEventListener('change',e=>{showIons=e.target.checked;renderTubes();});
+try{SND.on=localStorage.getItem('ionlab-sound')==='on';}catch(_){}
+$('#soundToggle').checked=SND.on;
+$('#soundToggle').addEventListener('change',e=>{SND.on=e.target.checked;try{localStorage.setItem('ionlab-sound',SND.on?'on':'off');}catch(_){}
+  if(SND.on){SND.ensure();setTimeout(()=>SND.drop(1),60);}else SND.beds(0,0);});
+document.addEventListener('pointerdown',()=>{if(SND.on)SND.ensure();},{capture:true});
+$('#animToggle').checked=!REDUCED;
+$('#animToggle').addEventListener('change',e=>{REDUCED=!e.target.checked;try{localStorage.setItem('ionlab-anim',REDUCED?'off':'on');}catch(_){}say(REDUCED?'Анімацію вимкнено: результат реакції з’являтиметься одразу.':'Анімацію ввімкнено.');});
 
 renderShelf();renderPip();renderExp();renderTubes();renderJournal();
 $('#mixCard').innerHTML='<div class="thead"><span>Пробірка для змішування</span><span class="vol"></span></div><div class="tube-hit"><canvas class="tv" aria-hidden="true"></canvas><div class="bhost"></div></div><div class="made"></div>';
