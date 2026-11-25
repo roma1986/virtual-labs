@@ -7,7 +7,7 @@
 <!-- © 2026 Автор ідеї: Біла Мар’яна Іванівна. Реалізація: Роман Білий. Усі права захищено. Копіювання та використання коду без згоди авторів заборонено. -->
 <meta name="author" content="Біла Мар’яна Іванівна (ідея), Роман Білий (реалізація)">
 <meta name="copyright" content="© 2026 Біла М. І., Білий Р. Усі права захищено.">
-<meta name="version" content="1.3 (25.11.2026)">
+<meta name="version" content="1.4 (25.11.2026)">
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
 <link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -175,6 +175,7 @@ details summary{cursor:pointer;color:var(--accent);font-weight:600;margin-top:4p
 .rbtns button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);font-weight:600}
 .rbtns button:disabled{opacity:.5;cursor:default}
 .rbtns .re{font-size:1.25rem;line-height:1}
+.rtotal{margin:0 0 4px;font-weight:600}
 .rbtns b{min-width:1.4em;text-align:right;font-variant-numeric:tabular-nums}
 .vtag{margin:6px 0 0;font-size:.82rem;color:var(--muted)}
 .credits .ver{margin:-4px 0 6px;font-size:.85rem}
@@ -247,7 +248,7 @@ ul.tidy li{margin-bottom:3px}
   <header class="top"><div class="topText">
     <h1>Реакції йонного обміну між електролітами у водних розчинах</h1>
     <p class="lede">Віртуальна лабораторія до навчального дослідження 9 з підручника «Хімія, 9 клас» (О. В. Григорович, с. 98–99). Беріть реактиви з полиці, зливайте їх у пробірках, додавайте індикатори й спостерігайте. Рівняння реакцій спершу складіть самі, а потім перевірте в журналі.</p>
-    <p class="vtag">Версія 1.3 від 25.11.2026</p>
+    <p class="vtag">Версія 1.4 від 25.11.2026</p>
   </div>
   <button type="button" class="qrcard" id="qrOpen" aria-label="Показати QR-код, щоб відкрити симулятор на телефоні"><span class="qrthumb" id="qrThumb"></span><span class="qrcap">Скануйте, щоб відкрити на телефоні</span></button>
   </header>
@@ -343,13 +344,14 @@ ul.tidy li{margin-bottom:3px}
       <button type="button" data-react="wow" aria-pressed="false"><span class="re" aria-hidden="true">🤩</span>Вау!<b data-count="wow">0</b></button>
       <button type="button" data-react="unclear" aria-pressed="false"><span class="re" aria-hidden="true">🤔</span>Незрозуміло<b data-count="unclear">0</b></button>
     </div>
+    <p class="rtotal" id="reactTotal"></p>
     <p class="pg" id="reactMsg" aria-live="polite">Відгуки анонімні: зберігається лише сама реакція.</p>
   </section>
 
   <p class="foot">Симулятор спрощений: концентрації розчинів умовні, а кислі солі (гідрокарбонати, гідросульфіти) не розглядаються. Це навчальна модель, вона не замінює реальний експеримент.</p>
   <footer class="credits" aria-label="Авторське право">
     <p class="copy">© 2026 Віртуальна лабораторія «Реакції йонного обміну». Усі права захищено. Копіювання, відтворення та поширення матеріалів сторінки без письмової згоди авторів заборонено.</p>
-    <p class="ver">Версія 1.3 від 25.11.2026</p>
+    <p class="ver">Версія 1.4 від 25.11.2026</p>
     <div class="who">
       <div><span class="role">Автор ідеї</span><b>Біла Мар’яна Іванівна</b><span>вчитель хімії, Ліцей № 3 імені В’ячеслава Чорновола</span></div>
       <div><span class="role">Реалізація</span><b>Роман Білий</b><span>вчитель інформатики, Дрогобицький науковий ліцей імені Богдана Лепкого</span></div>
@@ -1648,19 +1650,21 @@ $('#mRand').addEventListener('click',()=>{
   var KEY='vlab-reaction-'+SIM_ID,mine=null,msg=document.getElementById('reactMsg');
   try{mine=localStorage.getItem(KEY);}catch(_){}
   box.hidden=false;
+  var tot=document.getElementById('reactTotal');
+  function load(){fetch(REACT_URL+'?sim='+SIM_ID+'&t='+Date.now()).then(function(r){return r.json();}).then(function(d){if(d&&d.ok)paint(d.counts);}).catch(function(){});}
   function paint(c){
-    if(c)Object.keys(c).forEach(function(k){var el=box.querySelector('[data-count="'+k+'"]');if(el)el.textContent=c[k];});
+    if(c){var sum=0;Object.keys(c).forEach(function(k){var el=box.querySelector('[data-count="'+k+'"]');if(el)el.textContent=c[k];sum+=(+c[k]||0);});tot.textContent='Усього відгуків: '+sum;}
     box.querySelectorAll('[data-react]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.react===mine));b.disabled=!!mine&&b.dataset.react!==mine;});
   }
   paint(null);
-  fetch(REACT_URL+'?sim='+SIM_ID).then(function(r){return r.json();}).then(function(d){if(d&&d.ok)paint(d.counts);}).catch(function(){});
+  load();
   box.addEventListener('click',function(e){
     var b=e.target.closest('[data-react]');if(!b||mine)return;
     var k=b.dataset.react,el=box.querySelector('[data-count="'+k+'"]');
     mine=k;el.textContent=(+el.textContent||0)+1;paint(null);
     fetch(REACT_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({sim:SIM_ID,version:VERSION,reaction:k})})
       .then(function(r){return r.json();})
-      .then(function(d){if(!d||!d.ok)throw new Error();try{localStorage.setItem(KEY,k);}catch(_){}if(d.counts)paint(d.counts);msg.textContent='Дякуємо за відгук! Відгуки анонімні: зберігається лише сама реакція.';})
+      .then(function(d){if(!d||!d.ok)throw new Error();try{localStorage.setItem(KEY,k);}catch(_){}if(d.counts)paint(d.counts);else load();msg.textContent='Дякуємо за відгук! Відгуки анонімні: зберігається лише сама реакція.';})
       .catch(function(){mine=null;el.textContent=Math.max(0,(+el.textContent||1)-1);paint(null);msg.textContent='Не вдалося надіслати відгук. Перевірте інтернет і спробуйте ще раз.';});
   });
 })();
